@@ -32,7 +32,11 @@ The supervised part uses the `Machine failure` label.
 
 This lets the group explain why the final model was chosen, instead of randomly selecting one model.
 
-### 2.2 Anomaly detection models
+### 2.2 Semi-supervised predictive maintenance models
+
+The semi-supervised tab uses `SelfTrainingClassifier` with the same three base models: XGBoost, Random Forest, and Logistic Regression. Only a selected fraction of the training labels is kept visible; the remaining labels are marked as unlabelled. The model then learns from the visible labels and adds confident pseudo-labels during training. This simulates industrial situations where only part of the machine data has confirmed failure labels.
+
+### 2.3 Anomaly detection models
 
 The project topic is explainable anomaly detection, so supervised prediction alone is not enough. The improved dashboard adds a dedicated anomaly-detection tab.
 
@@ -76,6 +80,7 @@ The project can be presented as follows:
 5. We evaluated all models using confusion matrix, precision, recall, F1 and AUC.
 6. We used SHAP, LIME, PDP and reconstruction/deviation explanations to make the predictions understandable.
 7. We integrated everything into a Streamlit dashboard following Visual Analytics principles.
+8. We added pairwise relationship plots and derived engineering-oriented features such as temperature difference and mechanical power to support visual interpretation of machine operating regions.
 
 ## 5. Reference List
 

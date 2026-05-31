@@ -44,10 +44,10 @@ They are only used for dashboard display and interpretation.
 | Tab | Purpose |
 |---|---|
 | Data Explorer | Raw data, failure rate, failure-mode overview, filters |
-| Visual Analytics | Correlation heatmap, box plots, density plots, scatter plots, t-SNE |
-| Supervised ML | XGBoost supervised failure prediction |
+| Visual Analytics | Correlation heatmap, box plots, density plots, scatter plots, feature-relationship explorer, derived feature plots, scatter matrix, t-SNE |
+| Supervised ML | XGBoost, Random Forest, and Logistic Regression supervised failure prediction |
 | Anomaly Detection | Isolation Forest, LOF, and MLP Autoencoder trained on normal samples |
-| Semi-Supervised | Self-training model with limited labelled data |
+| Semi-Supervised | Self-training versions of XGBoost, Random Forest, and Logistic Regression with limited labelled data |
 | XAI Explanations | SHAP, LIME, and Partial Dependence Plots for XGBoost |
 | Model Comparison | XGBoost vs Random Forest vs Logistic Regression |
 | Methodology & References | Literature-backed justification of dataset, methods, and XAI choices |
@@ -127,3 +127,12 @@ VA-Proj-main/
 [8] A. Maged, S. Haridy, and H. Shen, “Explainable Artificial Intelligence Techniques for Accurate Fault Detection and Diagnosis: A Review,” arXiv:2404.11597, 2024.
 
 [9] L. C. Brito, G. A. Susto, J. N. Brito, and M. A. V. Duarte, “An Explainable Artificial Intelligence Approach for Unsupervised Fault Detection and Diagnosis in Rotating Machinery,” arXiv:2102.11848, 2021.
+
+
+### Note about supervised and semi-supervised model tabs
+
+The **Supervised ML** tab now trains and displays XGBoost, Random Forest, and Logistic Regression.
+The **Model Comparison** tab provides the same supervised comparison in a compact overview.
+The XGBoost configuration is kept identical across sections so that its reported metrics are consistent when trained on the same dataset split.
+
+The **Semi-Supervised** tab applies `SelfTrainingClassifier` to the same three base models. It hides part of the training labels, marks them as unlabelled, and lets the model add confident pseudo-labels iteratively.

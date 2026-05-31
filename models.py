@@ -152,10 +152,13 @@ def train_all_models(df: pd.DataFrame, random_state: int = 42):
     X_train, X_test, y_train, y_test = split_xy(df, random_state=random_state)
 
     models = {
+        # Same XGBoost configuration as train_supervised().
+        # This keeps the XGBoost metrics consistent between the
+        # "Supervised ML" tab and the "Model Comparison" tab.
         "XGBoost": XGBClassifier(
-            n_estimators=250,
-            max_depth=4,
-            learning_rate=0.05,
+            n_estimators=100,
+            max_depth=3,
+            learning_rate=0.08,
             subsample=0.9,
             colsample_bytree=0.9,
             eval_metric="logloss",
@@ -209,31 +212,135 @@ def train_all_models(df: pd.DataFrame, random_state: int = 42):
     return results, X_train, X_test, y_test
 
 
-def train_semi_supervised(df: pd.DataFrame, labeled_fraction: float = 0.3, random_state: int = 42):
-    """Simulate semi-supervised learning by hiding part of the labels."""
+def _visible_label_mask(y_train: pd.Series, labeled_fraction: float, random_state: int = 42) -> np.ndarray:
+    """Create a stratified mask of labels that remain visible.
+
+    This avoids an unlucky situation where the visible labelled subset contains only
+    one class. The hidden labels are later set to -1 for SelfTrainingClassifier.
+    """
+    rng = np.random.RandomState(random_state)
+    visible = np.zeros(len(y_train), dtype=bool)
+    y_arr = y_train.to_numpy()
+
+    for cls in np.unique(y_arr):
+        idx = np.where(y_arr == cls)[0]
+        n_visible = max(1, int(round(len(idx) * labeled_fraction)))
+        chosen = rng.choice(idx, size=n_visible, replace=False)
+        visible[chosen] = True
+
+    return visible
+
+
+def train_semi_supervised_all(df: pd.DataFrame, labeled_fraction: float = 0.3, random_state: int = 42):
+    """Train semi-supervised self-training versions of three supervised models.
+
+    Self-training is a semi-supervised wrapper:
+    - keep only a fraction of training labels visible;
+    - mark the remaining labels as -1 (unlabelled);
+    - train a base supervised model;
+    - add confident pseudo-labels iteratively.
+
+    The three base models mirror the supervised comparison tab:
+    XGBoost, Random Forest, and Logistic Regression.
+    """
     X_train, X_test, y_train, y_test = split_xy(df, random_state=random_state)
 
-    rng = np.random.RandomState(random_state)
-    mask = rng.rand(len(y_train)) > labeled_fraction
+    visible_mask = _visible_label_mask(y_train, labeled_fraction, random_state=random_state)
     y_semi = y_train.copy().values.astype(int)
-    y_semi[mask] = -1
+    y_semi[~visible_mask] = -1
 
-    base = RandomForestClassifier(
-        n_estimators=100,
-        class_weight="balanced",
-        random_state=random_state,
-        n_jobs=-1,
+    base_models = {
+        "Self-Training XGBoost": XGBClassifier(
+            n_estimators=100,
+            max_depth=3,
+            learning_rate=0.08,
+            subsample=0.9,
+            colsample_bytree=0.9,
+            eval_metric="logloss",
+            tree_method="hist",
+            n_jobs=1,
+            scale_pos_weight=_scale_pos_weight(y_train[visible_mask]),
+            random_state=random_state,
+        ),
+        "Self-Training Random Forest": RandomForestClassifier(
+            n_estimators=150,
+            max_depth=None,
+            class_weight="balanced",
+            random_state=random_state,
+            n_jobs=-1,
+        ),
+        "Self-Training Logistic Regression": LogisticRegression(
+            max_iter=2000,
+            random_state=random_state,
+            class_weight="balanced",
+            C=1.0,
+        ),
+    }
+
+    results = {}
+    for name, base in base_models.items():
+        if "Logistic Regression" in name:
+            scaler = StandardScaler()
+            X_fit = scaler.fit_transform(X_train)
+            X_eval = scaler.transform(X_test)
+        else:
+            scaler = None
+            X_fit = X_train
+            X_eval = X_test
+
+        semi_model = SelfTrainingClassifier(base, threshold=0.80, max_iter=10, verbose=False)
+        semi_model.fit(X_fit, y_semi)
+
+        y_pred = semi_model.predict(X_eval)
+        y_prob = semi_model.predict_proba(X_eval)[:, 1]
+        report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
+        auc = roc_auc_score(y_test, y_prob)
+        cm = confusion_matrix(y_test, y_pred)
+
+        results[name] = {
+            "model": semi_model,
+            "base_model": base.__class__.__name__,
+            "scaler": scaler,
+            "y_pred": y_pred,
+            "y_prob": y_prob,
+            "report": report,
+            "auc": auc,
+            "cm": cm,
+            "X_test": X_eval,
+        }
+
+    meta = {
+        "X_train": X_train,
+        "X_test": X_test,
+        "y_test": y_test,
+        "labeled_fraction": labeled_fraction,
+        "visible_labels": int(visible_mask.sum()),
+        "hidden_labels": int((~visible_mask).sum()),
+        "visible_failures": int(((y_train.to_numpy() == 1) & visible_mask).sum()),
+        "visible_normals": int(((y_train.to_numpy() == 0) & visible_mask).sum()),
+    }
+    return results, meta
+
+
+def train_semi_supervised(df: pd.DataFrame, labeled_fraction: float = 0.3, random_state: int = 42):
+    """Backward-compatible single semi-supervised model.
+
+    Returns the Random Forest self-training result in the old tuple format.
+    The dashboard now uses train_semi_supervised_all().
+    """
+    results, meta = train_semi_supervised_all(df, labeled_fraction, random_state)
+    r = results["Self-Training Random Forest"]
+    return (
+        r["model"],
+        meta["X_test"],
+        meta["y_test"],
+        r["y_pred"],
+        r["y_prob"],
+        r["report"],
+        r["auc"],
+        r["cm"],
+        labeled_fraction,
     )
-    semi_model = SelfTrainingClassifier(base, threshold=0.8, verbose=False)
-    semi_model.fit(X_train, y_semi)
-
-    y_pred = semi_model.predict(X_test)
-    y_prob = semi_model.predict_proba(X_test)[:, 1]
-    report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
-    auc = roc_auc_score(y_test, y_prob)
-    cm = confusion_matrix(y_test, y_pred)
-    return semi_model, X_test, y_test, y_pred, y_prob, report, auc, cm, labeled_fraction
-
 
 # ---------------------------------------------------------------------------
 # Anomaly detection models

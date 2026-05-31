@@ -15,6 +15,7 @@ from models import (
     train_supervised,
     train_all_models,
     train_semi_supervised,
+    train_semi_supervised_all,
     train_anomaly_models,
     anomaly_local_explanation,
     FEATURES,
@@ -80,7 +81,7 @@ def get_all_model_results(df):
 
 @st.cache_resource
 def get_semi_results(df, frac):
-    return train_semi_supervised(df, labeled_fraction=frac)
+    return train_semi_supervised_all(df, labeled_fraction=frac)
 
 
 @st.cache_resource
@@ -226,6 +227,130 @@ with tab2:
     )
     st.plotly_chart(fig_scatter, use_container_width=True)
 
+    st.subheader("Feature Relationship Explorer")
+    st.markdown(
+        "This section shows additional physical/process relationships, similar to the torque-speed plot. "
+        "The aim is to see whether failures appear in special operating regions instead of only looking at one feature at a time."
+    )
+
+    relation_df = df_filtered.copy()
+    relation_df["Temperature difference [K]"] = (
+        relation_df["Process temperature [K]"] - relation_df["Air temperature [K]"]
+    )
+    relation_df["Mechanical power [kW]"] = (
+        relation_df["Torque [Nm]"] * 2 * np.pi * relation_df["Rotational speed [rpm]"] / 60 / 1000
+    )
+    relation_df_plot = add_failure_status(relation_df)
+
+    relationship_presets = {
+        "Torque vs Rotational speed": ("Rotational speed [rpm]", "Torque [Nm]"),
+        "Air temperature vs Process temperature": ("Air temperature [K]", "Process temperature [K]"),
+        "Tool wear vs Torque": ("Tool wear [min]", "Torque [Nm]"),
+        "Tool wear vs Rotational speed": ("Tool wear [min]", "Rotational speed [rpm]"),
+        "Tool wear vs Mechanical power": ("Tool wear [min]", "Mechanical power [kW]"),
+        "Temperature difference vs Tool wear": ("Tool wear [min]", "Temperature difference [K]"),
+        "Rotational speed vs Mechanical power": ("Rotational speed [rpm]", "Mechanical power [kW]"),
+    }
+
+    preset = st.selectbox(
+        "Choose a relationship preset",
+        list(relationship_presets.keys()),
+        key="relationship_preset",
+    )
+    x_col, y_col = relationship_presets[preset]
+
+    rel_col1, rel_col2, rel_col3 = st.columns([1, 1, 1])
+    with rel_col1:
+        st.metric("Selected x-axis", x_col)
+    with rel_col2:
+        st.metric("Selected y-axis", y_col)
+    with rel_col3:
+        corr_val = relation_df[[x_col, y_col]].corr().iloc[0, 1]
+        st.metric("Pearson correlation", f"{corr_val:.3f}")
+
+    show_trend = st.checkbox("Show simple linear trend line", value=True, key="relation_trend")
+
+    fig_relation = px.scatter(
+        relation_df_plot,
+        x=x_col,
+        y=y_col,
+        color="Failure Status",
+        color_discrete_map=FAILURE_COLOR_MAP,
+        category_orders={"Failure Status": [NO_FAILURE_LABEL, FAILURE_LABEL]},
+        opacity=0.65,
+        title=f"{preset} — failure highlighted",
+        hover_data=["Type", "Machine failure", "Tool wear [min]", "Rotational speed [rpm]", "Torque [Nm]"],
+    )
+
+    if show_trend and len(relation_df_plot) >= 2:
+        for label, color in [(NO_FAILURE_LABEL, NO_FAILURE_COLOR), (FAILURE_LABEL, FAILURE_COLOR)]:
+            sub = relation_df_plot[relation_df_plot["Failure Status"] == label][[x_col, y_col]].dropna()
+            if len(sub) >= 2 and sub[x_col].nunique() > 1:
+                x_values = np.linspace(sub[x_col].min(), sub[x_col].max(), 100)
+                slope, intercept = np.polyfit(sub[x_col], sub[y_col], 1)
+                y_values = slope * x_values + intercept
+                fig_relation.add_trace(
+                    go.Scatter(
+                        x=x_values,
+                        y=y_values,
+                        mode="lines",
+                        name=f"{label} trend",
+                        line=dict(color=color, dash="dash", width=2),
+                    )
+                )
+
+    st.plotly_chart(fig_relation, use_container_width=True)
+
+    with st.expander("Interpretation of feature relationship plots", expanded=False):
+        st.markdown(
+            "These relationship plots compare pairs of physical and process-related variables and color the samples by failure status. "
+            "They are used to visually inspect whether machine failures occur in specific operating regions.\n\n"
+            "For example, the relationship between rotational speed and torque represents the machine's load-speed behavior. "
+            "High torque at lower rotational speed can indicate heavy-load operating conditions. "
+            "The temperature difference shows how much the process temperature rises above the ambient air temperature, while mechanical power combines torque and rotational speed into an engineering-oriented load indicator.\n\n"
+            "These plots do not prove causality, but they help identify patterns that may be useful for model interpretation and anomaly/failure detection."
+        )
+
+    st.markdown("**Derived feature distributions**")
+    derived_feature = st.selectbox(
+        "Select derived/relationship feature",
+        ["Temperature difference [K]", "Mechanical power [kW]"],
+        key="derived_feature",
+    )
+    fig_derived = px.box(
+        relation_df_plot,
+        x="Failure Status",
+        y=derived_feature,
+        color="Failure Status",
+        color_discrete_map=FAILURE_COLOR_MAP,
+        category_orders={"Failure Status": [NO_FAILURE_LABEL, FAILURE_LABEL]},
+        title=f"{derived_feature}: normal vs failure",
+    )
+    st.plotly_chart(fig_derived, use_container_width=True)
+
+    st.markdown("**Scatter Matrix: multiple pairwise relations**")
+    matrix_cols = [
+        "Air temperature [K]",
+        "Process temperature [K]",
+        "Rotational speed [rpm]",
+        "Torque [Nm]",
+        "Tool wear [min]",
+        "Mechanical power [kW]",
+    ]
+    matrix_sample = relation_df_plot.sample(min(1200, len(relation_df_plot)), random_state=42)
+    fig_matrix = px.scatter_matrix(
+        matrix_sample,
+        dimensions=matrix_cols,
+        color="Failure Status",
+        color_discrete_map=FAILURE_COLOR_MAP,
+        category_orders={"Failure Status": [NO_FAILURE_LABEL, FAILURE_LABEL]},
+        title="Pairwise relationship matrix (sampled for readability)",
+        opacity=0.55,
+    )
+    fig_matrix.update_traces(diagonal_visible=False, showupperhalf=False)
+    fig_matrix.update_layout(height=850)
+    st.plotly_chart(fig_matrix, use_container_width=True)
+
     st.markdown("**t-SNE Projection**")
     if st.button("Run t-SNE (may take ~10 seconds)"):
         if len(df_filtered) < 5:
@@ -252,30 +377,70 @@ with tab2:
 # TAB 3 — Supervised ML
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab3:
-    st.subheader("Supervised Learning — XGBoost")
+    st.subheader("Supervised Learning — XGBoost · Random Forest · Logistic Regression")
     st.markdown(
-        "XGBoost is used as a strong supervised baseline. It learns directly from the "
-        "`Machine failure` label. Class imbalance is handled with `scale_pos_weight`, not SMOTE."
+        "This tab trains **three supervised failure-prediction models** with the same train/test split. "
+        "They learn directly from the `Machine failure` label. These are not pure anomaly-detection models; "
+        "they are labelled prediction baselines. Class imbalance is handled with class weighting / `scale_pos_weight`, not SMOTE."
     )
 
-    if st.button("Train Supervised Model"):
-        with st.spinner("Training XGBoost..."):
-            results = get_supervised_results(df)
-        st.session_state["sup_results"] = results
+    with st.expander("What is AUC-ROC?", expanded=False):
+        st.markdown(
+            "**AUC-ROC** means *Area Under the Receiver Operating Characteristic Curve*. "
+            "It measures how well a model separates failure and no-failure samples across all possible thresholds. "
+            "AUC = 0.5 means random guessing, while AUC = 1.0 means perfect separation. "
+            "Because this dataset is imbalanced, AUC is useful, but we still also check precision, recall, and F1."
+        )
+
+    if st.button("Train Supervised Models"):
+        with st.spinner("Training XGBoost, Random Forest and Logistic Regression..."):
+            # Detailed XGBoost tuple for the XAI tab.
+            xgb_results = get_supervised_results(df)
+            # Full comparison dictionary for this tab and the Model Comparison tab.
+            all_res, X_train_c, X_test_c, y_test_c = get_all_model_results(df)
+        st.session_state["sup_results"] = xgb_results
+        st.session_state["all_results"] = (all_res, X_test_c, y_test_c)
         st.success("Done!")
 
-    if "sup_results" in st.session_state:
-        model, X_train, X_test, y_train, y_test, y_pred, y_prob, report, auc, cm = st.session_state["sup_results"]
+    if "all_results" in st.session_state:
+        all_res, X_test_c, y_test_c = st.session_state["all_results"]
 
-        col1, col2, col3, col4 = st.columns(4)
+        summary = []
+        for name, r in all_res.items():
+            summary.append({
+                "Model": name,
+                "AUC-ROC": round(r["auc"], 4),
+                "Accuracy": round(r["report"]["accuracy"], 4),
+                "Precision (failure)": round(r["report"]["1"]["precision"], 4),
+                "Recall (failure)": round(r["report"]["1"]["recall"], 4),
+                "F1 (failure)": round(r["report"]["1"]["f1-score"], 4),
+            })
+
+        st.markdown("**Supervised model summary**")
+        st.dataframe(pd.DataFrame(summary).set_index("Model"), use_container_width=True)
+
+        selected_supervised = st.selectbox(
+            "Select supervised model for detailed view",
+            list(all_res.keys()),
+            key="supervised_detail_model",
+        )
+        r = all_res[selected_supervised]
+        report = r["report"]
+        auc = r["auc"]
+        cm = r["cm"]
+        y_pred = r["y_pred"]
+        y_prob = r["y_prob"]
+
+        col1, col2, col3, col4, col5 = st.columns(5)
         col1.metric("AUC-ROC", f"{auc:.4f}")
-        col2.metric("Precision (failure)", f"{report['1']['precision']:.4f}")
-        col3.metric("Recall (failure)", f"{report['1']['recall']:.4f}")
-        col4.metric("F1 (failure)", f"{report['1']['f1-score']:.4f}")
+        col2.metric("Accuracy", f"{report['accuracy']:.4f}")
+        col3.metric("Precision (failure)", f"{report['1']['precision']:.4f}")
+        col4.metric("Recall (failure)", f"{report['1']['recall']:.4f}")
+        col5.metric("F1 (failure)", f"{report['1']['f1-score']:.4f}")
 
         col_l, col_r = st.columns(2)
         with col_l:
-            st.markdown("**Confusion Matrix**")
+            st.markdown(f"**Confusion Matrix — {selected_supervised}**")
             fig_cm, ax = plt.subplots(figsize=(4, 3))
             sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax, xticklabels=["No Fail", "Fail"], yticklabels=["No Fail", "Fail"])
             ax.set_xlabel("Predicted")
@@ -284,16 +449,21 @@ with tab3:
             st.pyplot(fig_cm)
 
         with col_r:
-            st.markdown("**ROC Curve**")
-            fpr, tpr, _ = roc_curve(y_test, y_prob)
+            st.markdown(f"**ROC Curve — {selected_supervised}**")
+            fpr, tpr, _ = roc_curve(y_test_c, y_prob)
             fig_roc = go.Figure()
-            fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, name=f"XGBoost (AUC={auc:.3f})"))
+            fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, name=f"{selected_supervised} (AUC={auc:.3f})"))
             fig_roc.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines", line=dict(dash="dash"), name="Random"))
             fig_roc.update_layout(xaxis_title="False Positive Rate", yaxis_title="True Positive Rate", title="ROC Curve", height=350)
             st.plotly_chart(fig_roc, use_container_width=True)
 
         st.markdown("**Full Classification Report**")
         st.dataframe(pd.DataFrame(report).T.round(4), use_container_width=True)
+
+        st.info(
+            "For the XAI tab, we explain the **XGBoost** model because TreeSHAP is especially suitable for tree-based boosting models. "
+            "Random Forest and Logistic Regression are included here as supervised baselines for comparison."
+        )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — Anomaly Detection
@@ -386,43 +556,88 @@ with tab4:
 # TAB 5 — Semi-Supervised
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab5:
-    st.subheader("Semi-Supervised Learning — Self-Training")
+    st.subheader("Semi-Supervised Learning — Self-Training Comparison")
     st.markdown(
-        "This tab simulates a practical maintenance situation where only a fraction of the training labels are available."
+        "This tab simulates a practical maintenance situation where only a fraction of the training labels are available. "
+        "We apply the same semi-supervised strategy to three base models: **XGBoost**, **Random Forest**, and **Logistic Regression**."
     )
+
+    with st.expander("What type of machine learning is this?", expanded=True):
+        st.markdown(
+            "This is **semi-supervised classification** using `SelfTrainingClassifier`. "
+            "The model receives a small labelled subset and a larger unlabelled subset. "
+            "Unlabelled samples are internally marked as `-1`. The model first learns from labelled data, "
+            "then adds confident pseudo-labels for unlabelled samples and retrains. "
+            "This is useful for predictive maintenance because real failure labels are often rare or expensive to collect."
+        )
 
     labeled_frac = st.slider("Labeled fraction of training data", 0.1, 1.0, 0.3, 0.05)
 
-    if st.button("Train Semi-Supervised Model"):
-        with st.spinner("Training Self-Training model..."):
-            semi_res = get_semi_results(df, labeled_frac)
-        st.session_state["semi_results"] = semi_res
+    if st.button("Train Semi-Supervised Models"):
+        with st.spinner("Training Self-Training XGBoost, Random Forest and Logistic Regression..."):
+            semi_res, semi_meta = get_semi_results(df, labeled_frac)
+        st.session_state["semi_results"] = (semi_res, semi_meta)
         st.success("Done!")
 
     if "semi_results" in st.session_state:
-        semi_model, X_test_s, y_test_s, y_pred_s, y_prob_s, report_s, auc_s, cm_s, frac = st.session_state["semi_results"]
+        semi_res, semi_meta = st.session_state["semi_results"]
+        y_test_s = semi_meta["y_test"]
 
-        col1, col2, col3, col4 = st.columns(4)
+        st.info(
+            f"Visible labels: {semi_meta['visible_labels']:,} | Hidden labels: {semi_meta['hidden_labels']:,} | "
+            f"Visible normal samples: {semi_meta['visible_normals']:,} | Visible failure samples: {semi_meta['visible_failures']:,}"
+        )
+
+        summary = []
+        for name, r in semi_res.items():
+            summary.append({
+                "Model": name,
+                "AUC-ROC": round(r["auc"], 4),
+                "Accuracy": round(r["report"]["accuracy"], 4),
+                "Precision (failure)": round(r["report"]["1"]["precision"], 4),
+                "Recall (failure)": round(r["report"]["1"]["recall"], 4),
+                "F1 (failure)": round(r["report"]["1"]["f1-score"], 4),
+            })
+        st.markdown("**Semi-supervised model summary**")
+        st.dataframe(pd.DataFrame(summary).set_index("Model"), use_container_width=True)
+
+        selected_semi = st.selectbox(
+            "Select semi-supervised model for detailed view",
+            list(semi_res.keys()),
+            key="semi_detail_model",
+        )
+        r = semi_res[selected_semi]
+        report_s = r["report"]
+        auc_s = r["auc"]
+        cm_s = r["cm"]
+        y_prob_s = r["y_prob"]
+
+        col1, col2, col3, col4, col5 = st.columns(5)
         col1.metric("AUC-ROC", f"{auc_s:.4f}")
-        col2.metric("Precision", f"{report_s['1']['precision']:.4f}")
-        col3.metric("Recall", f"{report_s['1']['recall']:.4f}")
-        col4.metric("F1", f"{report_s['1']['f1-score']:.4f}")
+        col2.metric("Accuracy", f"{report_s['accuracy']:.4f}")
+        col3.metric("Precision", f"{report_s['1']['precision']:.4f}")
+        col4.metric("Recall", f"{report_s['1']['recall']:.4f}")
+        col5.metric("F1", f"{report_s['1']['f1-score']:.4f}")
 
         col_l, col_r = st.columns(2)
         with col_l:
+            st.markdown(f"**Confusion Matrix — {selected_semi}**")
             fig_cm2, ax2 = plt.subplots(figsize=(4, 3))
             sns.heatmap(cm_s, annot=True, fmt="d", cmap="Greens", ax=ax2, xticklabels=["No Fail", "Fail"], yticklabels=["No Fail", "Fail"])
             ax2.set_xlabel("Predicted")
             ax2.set_ylabel("Actual")
+            plt.tight_layout()
             st.pyplot(fig_cm2)
         with col_r:
+            st.markdown(f"**ROC Curve — {selected_semi}**")
             fpr2, tpr2, _ = roc_curve(y_test_s, y_prob_s)
             fig_roc2 = go.Figure()
-            fig_roc2.add_trace(go.Scatter(x=fpr2, y=tpr2, name=f"Self-training {int(frac*100)}% labeled"))
+            fig_roc2.add_trace(go.Scatter(x=fpr2, y=tpr2, name=f"{selected_semi} (AUC={auc_s:.3f})"))
             fig_roc2.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines", line=dict(dash="dash"), name="Random"))
             fig_roc2.update_layout(xaxis_title="False Positive Rate", yaxis_title="True Positive Rate", title="ROC Curve — Semi-Supervised", height=350)
             st.plotly_chart(fig_roc2, use_container_width=True)
 
+        st.markdown("**Full Classification Report**")
         st.dataframe(pd.DataFrame(report_s).T.round(4), use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -463,19 +678,94 @@ with tab6:
 
         elif xai_method == "LIME":
             st.markdown(
-                "**LIME** fits a simple local surrogate model around one prediction. It is useful when we need a single-instance explanation."
+                "**LIME** fits a simple local surrogate model around one prediction. "
+                "Use the selector or the random button to inspect different test-set instances."
             )
-            lime_idx = st.number_input("Test-set instance index", 0, len(X_test) - 1, 0, step=1)
-            if st.button("Explain with LIME"):
+
+            # LIME explains one local instance at a time. To make the dashboard more useful
+            # during presentation, we allow random selection from all test rows or from
+            # meaningful subsets such as actual failures, predicted failures, and mistakes.
+            if "lime_selected_idx" not in st.session_state:
+                st.session_state["lime_selected_idx"] = 0
+
+            y_test_arr = y_test.to_numpy()
+            y_pred_arr = np.asarray(y_pred)
+            candidate_mode = st.selectbox(
+                "Random instance source",
+                [
+                    "All test instances",
+                    "Actual failures only",
+                    "Predicted failures only",
+                    "Misclassified instances only",
+                    "False negatives only (missed failures)",
+                    "False positives only (false alarms)",
+                ],
+                help="This only controls the random-pick button. The manual index can still be any test-set row.",
+            )
+
+            if candidate_mode == "Actual failures only":
+                candidate_indices = np.where(y_test_arr == 1)[0]
+            elif candidate_mode == "Predicted failures only":
+                candidate_indices = np.where(y_pred_arr == 1)[0]
+            elif candidate_mode == "Misclassified instances only":
+                candidate_indices = np.where(y_test_arr != y_pred_arr)[0]
+            elif candidate_mode == "False negatives only (missed failures)":
+                candidate_indices = np.where((y_test_arr == 1) & (y_pred_arr == 0))[0]
+            elif candidate_mode == "False positives only (false alarms)":
+                candidate_indices = np.where((y_test_arr == 0) & (y_pred_arr == 1))[0]
+            else:
+                candidate_indices = np.arange(len(X_test))
+
+            if len(candidate_indices) == 0:
+                st.warning("No instances are available for this random-selection category. Please choose another category.")
+                candidate_indices = np.arange(len(X_test))
+
+            col_lime_a, col_lime_b, col_lime_c = st.columns([1.2, 1.2, 2.0])
+            with col_lime_a:
+                random_clicked = st.button("🎲 Pick random & explain", help="Selects a random instance from the selected source and immediately runs LIME.")
+            with col_lime_b:
+                explain_clicked = st.button("Explain selected index")
+            with col_lime_c:
+                lime_idx_manual = st.number_input(
+                    "Test-set instance index",
+                    min_value=0,
+                    max_value=len(X_test) - 1,
+                    value=int(st.session_state["lime_selected_idx"]),
+                    step=1,
+                    help="Manual index of the test sample that should be explained by LIME.",
+                )
+
+            lime_idx_to_explain = None
+            if random_clicked:
+                lime_idx_to_explain = int(np.random.choice(candidate_indices))
+                st.session_state["lime_selected_idx"] = lime_idx_to_explain
+            elif explain_clicked:
+                lime_idx_to_explain = int(lime_idx_manual)
+                st.session_state["lime_selected_idx"] = lime_idx_to_explain
+
+            st.caption(
+                f"Current selected test index: **{int(st.session_state['lime_selected_idx'])}** · "
+                f"available random candidates in this mode: **{len(candidate_indices)}**"
+            )
+
+            if lime_idx_to_explain is not None:
                 with st.spinner("Running LIME..."):
                     lime_exp = get_lime_explainer(X_train)
-                    fig_lime, exp = plot_lime_explanation(lime_exp, model, X_test.iloc[int(lime_idx)])
-                actual = int(y_test.iloc[int(lime_idx)])
-                predicted = int(y_pred[int(lime_idx)])
+                    fig_lime, exp = plot_lime_explanation(lime_exp, model, X_test.iloc[int(lime_idx_to_explain)])
+                actual = int(y_test.iloc[int(lime_idx_to_explain)])
+                predicted = int(y_pred[int(lime_idx_to_explain)])
+                probability = float(y_prob[int(lime_idx_to_explain)])
+
                 st.markdown(
+                    f"**Explained test index:** `{int(lime_idx_to_explain)}`  \n"
                     f"**Actual label:** {'Failure ⚠️' if actual else 'No Failure ✅'} | "
-                    f"**Predicted:** {'Failure ⚠️' if predicted else 'No Failure ✅'}"
+                    f"**Predicted:** {'Failure ⚠️' if predicted else 'No Failure ✅'} | "
+                    f"**Predicted failure probability:** `{probability:.3f}`"
                 )
+
+                st.markdown("**Raw feature values for this instance**")
+                st.dataframe(X_test.iloc[[int(lime_idx_to_explain)]], use_container_width=True)
+
                 st.pyplot(fig_lime)
                 lime_df = pd.DataFrame(exp.as_list(), columns=["Condition", "Weight"])
                 lime_df["Direction"] = lime_df["Weight"].apply(lambda w: "→ Failure" if w > 0 else "→ No Failure")
@@ -497,7 +787,10 @@ with tab6:
 with tab7:
     st.subheader("Model Comparison")
     st.markdown(
-        "The supervised models are compared to select a robust prediction baseline. The anomaly models are compared in the Anomaly Detection tab."
+        "The supervised models are compared to select a robust prediction baseline. "
+        "The anomaly models are compared in the Anomaly Detection tab. "
+        "The XGBoost row uses the same configuration and train/test split as the detailed Supervised ML tab, "
+        "so the XGBoost metrics should match after retraining both sections."
     )
 
     if st.button("Run Supervised Model Comparison"):
@@ -513,6 +806,7 @@ with tab7:
             summary.append({
                 "Model": name,
                 "AUC-ROC": round(r["auc"], 4),
+                "Accuracy": round(r["report"]["accuracy"], 4),
                 "Precision": round(r["report"]["1"]["precision"], 4),
                 "Recall": round(r["report"]["1"]["recall"], 4),
                 "F1": round(r["report"]["1"]["f1-score"], 4),
@@ -550,6 +844,7 @@ The AI4I 2020 dataset was chosen because it is directly designed for predictive 
 
 ### Why these model types?
 - **XGBoost / Random Forest / Logistic Regression:** supervised baselines for labelled failure prediction.
+- **Self-Training XGBoost / Random Forest / Logistic Regression:** semi-supervised classification when only part of the labels are available.
 - **Isolation Forest / Local Outlier Factor:** classical anomaly detection models trained on normal behavior.
 - **MLP Autoencoder:** reconstruction-based anomaly detection; high reconstruction error suggests an unusual machine state.
 
