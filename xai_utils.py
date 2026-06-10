@@ -22,9 +22,27 @@ THRESHOLD_COLOR = "#CC79A7"
 
 # ── SHAP ──────────────────────────────────────────────────────────────────────
 
+def _select_failure_class_shap_values(shap_values):
+    """Return SHAP values for the Failure class when a classifier returns both classes.
+
+    Some tree classifiers, especially Random Forest, return SHAP values with shape
+    (samples, features, classes). For this project we explain class 1 = Failure,
+    so we select the last dimension index 1. XGBoost binary models usually already
+    return a 2D Explanation, so no selection is needed.
+    """
+    try:
+        values = shap_values.values
+        if getattr(values, "ndim", 0) == 3 and values.shape[2] >= 2:
+            return shap_values[:, :, 1]
+    except Exception:
+        pass
+    return shap_values
+
+
 def get_shap_explainer(model, X_train):
     explainer = shap.TreeExplainer(model)
     shap_values = explainer(X_train)
+    shap_values = _select_failure_class_shap_values(shap_values)
     return explainer, shap_values
 
 
@@ -128,6 +146,31 @@ def plot_lime_explanation(lime_explainer, model, X_instance):
         num_features=len(ALL_FEATURES_CLEAN),
     )
     fig = exp.as_pyplot_figure()
+
+    # LIME uses green/red by default. In this dashboard we keep the class colors
+    # consistent with the rest of the project:
+    #   positive contribution  -> pushes the explanation toward Failure
+    #   negative contribution  -> pushes the explanation toward No Failure
+    # This avoids the confusing default where Failure-supporting bars can appear green.
+    for ax in fig.axes:
+        for patch in ax.patches:
+            try:
+                width = patch.get_width()
+                if width >= 0:
+                    patch.set_color(FAILURE_COLOR)      # pushes toward Failure
+                else:
+                    patch.set_color(NO_FAILURE_COLOR)   # pushes toward No Failure
+            except Exception:
+                pass
+
+        ax.set_title(
+            "Local LIME explanation for class: Failure\n"
+            "Orange = pushes toward Failure | Blue = pushes toward No Failure",
+            fontsize=13,
+        )
+        ax.tick_params(axis="both", labelsize=10)
+
+    fig.patch.set_facecolor("white")
     plt.tight_layout()
     return fig, exp
 

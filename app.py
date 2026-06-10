@@ -399,11 +399,11 @@ with tab3:
             # Full comparison dictionary for this tab and the Model Comparison tab.
             all_res, X_train_c, X_test_c, y_test_c = get_all_model_results(df)
         st.session_state["sup_results"] = xgb_results
-        st.session_state["all_results"] = (all_res, X_test_c, y_test_c)
+        st.session_state["all_results"] = (all_res, X_train_c, X_test_c, y_test_c)
         st.success("Done!")
 
     if "all_results" in st.session_state:
-        all_res, X_test_c, y_test_c = st.session_state["all_results"]
+        all_res, X_train_c, X_test_c, y_test_c = st.session_state["all_results"]
 
         summary = []
         for name, r in all_res.items():
@@ -461,8 +461,8 @@ with tab3:
         st.dataframe(pd.DataFrame(report).T.round(4), use_container_width=True)
 
         st.info(
-            "For the XAI tab, we explain the **XGBoost** model because TreeSHAP is especially suitable for tree-based boosting models. "
-            "Random Forest and Logistic Regression are included here as supervised baselines for comparison."
+            "The XAI tab can explain **XGBoost, Random Forest, and Logistic Regression**. "
+            "SHAP is available for tree-based models; LIME and PDP can be applied to all supervised models."
         )
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -520,37 +520,101 @@ with tab4:
 
         st.markdown("**Local explanation for one selected sample**")
         selected_method = st.selectbox("Select anomaly method", list(anomaly_methods.keys()), key="anom_explain_method")
+
+        y_true_anom = anomaly_meta["y_test"].to_numpy()
         y_pred = anomaly_methods[selected_method]["y_pred"]
-        candidate_idx = np.where(y_pred == 1)[0]
-        default_idx = int(candidate_idx[0]) if len(candidate_idx) else int(np.argmax(anomaly_methods[selected_method]["score"]))
-        sample_idx = st.number_input("Test-set sample index", 0, len(anomaly_meta["y_test"]) - 1, default_idx, step=1)
-        sample_idx = int(sample_idx)
+        anom_scores = anomaly_methods[selected_method]["score"]
 
-        exp_df = anomaly_local_explanation(anomaly_methods[selected_method], anomaly_meta, sample_idx)
-        actual = int(anomaly_meta["y_test"].iloc[sample_idx])
-        predicted = int(y_pred[sample_idx])
-        score = float(anomaly_methods[selected_method]["score"][sample_idx])
-        st.markdown(
-            f"**Actual:** {'Failure ⚠️' if actual else 'Normal ✅'} | "
-            f"**Predicted:** {'Anomaly ⚠️' if predicted else 'Normal ✅'} | "
-            f"**Score:** {score:.5f}"
+        sample_group = st.selectbox(
+            "Select sample group for local explanation",
+            [
+                "All test samples",
+                "Actual failures only",
+                "Actual normal samples only",
+                "Predicted anomalies only",
+                "Predicted normal samples only",
+                "Correct predictions only",
+                "Wrong predictions only",
+                "False positives: normal predicted as anomaly",
+                "False negatives: failure predicted as normal",
+            ],
+            key="anom_sample_group",
         )
-        st.dataframe(anomaly_meta["X_test"].iloc[[sample_idx]], use_container_width=True)
-        st.dataframe(exp_df.head(10), use_container_width=True)
 
-        top = exp_df.head(8).iloc[::-1]
-        top = top.copy()
-        top["Direction"] = np.where(top["Explanation value"] >= 0, "Pushes toward anomaly", "Pushes toward normal")
-        fig_exp = px.bar(
-            top,
-            x="Explanation value",
-            y="Feature",
-            color="Direction",
-            orientation="h",
-            title=f"Local explanation — {selected_method}",
-            color_discrete_map={"Pushes toward anomaly": FAILURE_COLOR, "Pushes toward normal": NO_FAILURE_COLOR},
-        )
-        st.plotly_chart(fig_exp, use_container_width=True)
+        group_masks = {
+            "All test samples": np.ones_like(y_true_anom, dtype=bool),
+            "Actual failures only": y_true_anom == 1,
+            "Actual normal samples only": y_true_anom == 0,
+            "Predicted anomalies only": y_pred == 1,
+            "Predicted normal samples only": y_pred == 0,
+            "Correct predictions only": y_true_anom == y_pred,
+            "Wrong predictions only": y_true_anom != y_pred,
+            "False positives: normal predicted as anomaly": (y_true_anom == 0) & (y_pred == 1),
+            "False negatives: failure predicted as normal": (y_true_anom == 1) & (y_pred == 0),
+        }
+        candidate_idx = np.where(group_masks[sample_group])[0]
+        st.caption(f"{len(candidate_idx)} matching test samples for: {sample_group}")
+
+        if len(candidate_idx) == 0:
+            st.warning("No samples are available for this group with the selected anomaly method.")
+        else:
+            sort_choice = st.selectbox(
+                "Sort matching samples",
+                ["Highest anomaly score first", "Lowest anomaly score first", "Original test-set order"],
+                key="anom_sort_choice",
+            )
+            if sort_choice == "Highest anomaly score first":
+                candidate_idx = candidate_idx[np.argsort(anom_scores[candidate_idx])[::-1]]
+            elif sort_choice == "Lowest anomaly score first":
+                candidate_idx = candidate_idx[np.argsort(anom_scores[candidate_idx])]
+
+            def _format_anomaly_idx(i):
+                actual_txt = "Failure" if int(y_true_anom[i]) == 1 else "Normal"
+                pred_txt = "Anomaly" if int(y_pred[i]) == 1 else "Normal"
+                return f"Index {int(i)} | Actual: {actual_txt} | Predicted: {pred_txt} | Score: {float(anom_scores[i]):.5f}"
+
+            sample_idx = st.selectbox(
+                "Select test-set sample index",
+                options=candidate_idx.tolist(),
+                index=0,
+                format_func=_format_anomaly_idx,
+                key="anom_selected_sample_idx",
+            )
+            sample_idx = int(sample_idx)
+
+            with st.expander("What do these sample groups mean?", expanded=False):
+                st.markdown("""
+**Correct predictions** means the anomaly model prediction matches the true `Machine failure` label.  
+**Wrong predictions** means the prediction does not match the true label.  
+**False positive** means the machine was actually normal, but the model predicted anomaly.  
+**False negative** means the machine was actually a failure, but the model predicted normal.
+""")
+
+            exp_df = anomaly_local_explanation(anomaly_methods[selected_method], anomaly_meta, sample_idx)
+            actual = int(y_true_anom[sample_idx])
+            predicted = int(y_pred[sample_idx])
+            score = float(anom_scores[sample_idx])
+            st.markdown(
+                f"**Actual:** {'Failure ⚠️' if actual else 'Normal ✅'} | "
+                f"**Predicted:** {'Anomaly ⚠️' if predicted else 'Normal ✅'} | "
+                f"**Score:** {score:.5f}"
+            )
+            st.dataframe(anomaly_meta["X_test"].iloc[[sample_idx]], use_container_width=True)
+            st.dataframe(exp_df.head(10), use_container_width=True)
+
+            top = exp_df.head(8).iloc[::-1]
+            top = top.copy()
+            top["Direction"] = np.where(top["Explanation value"] >= 0, "Pushes toward anomaly", "Pushes toward normal")
+            fig_exp = px.bar(
+                top,
+                x="Explanation value",
+                y="Feature",
+                color="Direction",
+                orientation="h",
+                title=f"Local explanation — {selected_method}",
+                color_discrete_map={"Pushes toward anomaly": FAILURE_COLOR, "Pushes toward normal": NO_FAILURE_COLOR},
+            )
+            st.plotly_chart(fig_exp, use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 5 — Semi-Supervised
@@ -646,50 +710,106 @@ with tab5:
 with tab6:
     st.subheader("Explainable AI — SHAP · LIME · PDP")
     st.markdown(
-        "These explanations are shown for the supervised XGBoost model. Train the supervised model first."
+        "This tab explains the **supervised failure-prediction models**. "
+        "You can select XGBoost, Random Forest, or Logistic Regression and inspect how the model makes predictions."
     )
 
-    if "sup_results" not in st.session_state:
-        st.warning("Please train the Supervised Model in Tab 3 first.")
+    if "all_results" not in st.session_state:
+        st.warning("Please train the Supervised Models in Tab 3 first.")
     else:
-        model, X_train, X_test, y_train, y_test, y_pred, y_prob, report, auc, cm = st.session_state["sup_results"]
+        all_res, X_train_base, X_test_base, y_test = st.session_state["all_results"]
 
-        xai_method = st.radio("Choose XAI method", ["SHAP", "LIME", "Partial Dependence Plot (PDP)"], horizontal=True)
+        col_model, col_method = st.columns([1.2, 1.8])
+        with col_model:
+            xai_model_name = st.selectbox(
+                "Select model to explain",
+                list(all_res.keys()),
+                key="xai_model_name",
+            )
+        with col_method:
+            xai_method = st.radio(
+                "Choose XAI method",
+                ["SHAP", "LIME", "Partial Dependence Plot (PDP)"],
+                horizontal=True,
+            )
+
+        selected_result = all_res[xai_model_name]
+        selected_model = selected_result["model"]
+        selected_y_pred = np.asarray(selected_result["y_pred"])
+        selected_y_prob = np.asarray(selected_result["y_prob"])
+        selected_scaler = selected_result.get("scaler")
+
+        # XGBoost and Random Forest were trained on the original clean feature table.
+        # Logistic Regression was trained on standardized values, so its XAI input must
+        # also be standardized. We keep the same feature names for readability.
+        if selected_scaler is not None:
+            X_train_xai = pd.DataFrame(selected_scaler.transform(X_train_base), columns=ALL_FEATURES_CLEAN, index=X_train_base.index)
+            X_test_xai = pd.DataFrame(selected_scaler.transform(X_test_base), columns=ALL_FEATURES_CLEAN, index=X_test_base.index)
+            st.info(
+                "This model uses standardized/scaled input values. Therefore, the XAI plots for this model use standardized feature values, "
+                "not the original physical units."
+            )
+        else:
+            X_train_xai = X_train_base
+            X_test_xai = X_test_base
+
+        st.caption(
+            f"Currently explaining: **{xai_model_name}** · "
+            "Failure class = 1, No Failure class = 0"
+        )
 
         if xai_method == "SHAP":
             st.markdown(
-                "**TreeSHAP** explains how each feature pushes a tree-based model prediction above or below the baseline prediction."
+                "**SHAP** explains how features push model predictions toward Failure or No Failure. "
+                "For this dashboard, SHAP is enabled for the tree-based models **XGBoost** and **Random Forest**. "
+                "For Logistic Regression, use LIME/PDP or interpret coefficients as a simpler model-specific explanation."
             )
-            if st.button("Compute SHAP values"):
-                with st.spinner("Computing SHAP..."):
-                    explainer, shap_values = get_shap_explainer(model, X_train)
-                st.session_state["shap"] = (explainer, shap_values)
 
-            if "shap" in st.session_state:
-                _, shap_values = st.session_state["shap"]
-                shap_view = st.selectbox("SHAP plot type", ["Summary (beeswarm)", "Global Bar", "Waterfall (single instance)"])
-                if shap_view == "Summary (beeswarm)":
-                    st.pyplot(plot_shap_summary(shap_values))
-                elif shap_view == "Global Bar":
-                    st.pyplot(plot_shap_bar(shap_values))
-                else:
-                    idx = st.number_input("Training-set instance index", 0, len(X_train) - 1, 0, step=1)
-                    st.pyplot(plot_shap_waterfall(shap_values, int(idx)))
+            if xai_model_name == "Logistic Regression":
+                st.warning(
+                    "SHAP is intentionally disabled here for Logistic Regression to keep the dashboard fast and simple. "
+                    "Use LIME for local Logistic Regression explanations or PDP for global feature effects."
+                )
+            else:
+                shap_key = f"shap_{xai_model_name}"
+                if st.button(f"Compute SHAP values for {xai_model_name}"):
+                    with st.spinner(f"Computing SHAP for {xai_model_name}..."):
+                        explainer, shap_values = get_shap_explainer(selected_model, X_train_xai)
+                    st.session_state[shap_key] = (explainer, shap_values)
+
+                if shap_key in st.session_state:
+                    _, shap_values = st.session_state[shap_key]
+                    shap_view = st.selectbox(
+                        "SHAP plot type",
+                        ["Summary (beeswarm)", "Global Bar", "Waterfall (single instance)"],
+                        key=f"shap_view_{xai_model_name}",
+                    )
+                    if shap_view == "Summary (beeswarm)":
+                        st.pyplot(plot_shap_summary(shap_values))
+                    elif shap_view == "Global Bar":
+                        st.pyplot(plot_shap_bar(shap_values))
+                    else:
+                        idx = st.number_input(
+                            "Training-set instance index",
+                            0,
+                            len(X_train_xai) - 1,
+                            0,
+                            step=1,
+                            key=f"shap_idx_{xai_model_name}",
+                        )
+                        st.pyplot(plot_shap_waterfall(shap_values, int(idx)))
 
         elif xai_method == "LIME":
             st.markdown(
-                "**LIME** fits a simple local surrogate model around one prediction. "
-                "Use the selector or the random button to inspect different test-set instances."
+                "**LIME** is model-agnostic. This means it can explain **XGBoost, Random Forest, and Logistic Regression**. "
+                "It explains one selected test instance by fitting a simple local surrogate model around that specific prediction."
             )
 
-            # LIME explains one local instance at a time. To make the dashboard more useful
-            # during presentation, we allow random selection from all test rows or from
-            # meaningful subsets such as actual failures, predicted failures, and mistakes.
             if "lime_selected_idx" not in st.session_state:
                 st.session_state["lime_selected_idx"] = 0
 
             y_test_arr = y_test.to_numpy()
-            y_pred_arr = np.asarray(y_pred)
+            y_pred_arr = selected_y_pred
             candidate_mode = st.selectbox(
                 "Random instance source",
                 [
@@ -701,6 +821,7 @@ with tab6:
                     "False positives only (false alarms)",
                 ],
                 help="This only controls the random-pick button. The manual index can still be any test-set row.",
+                key=f"lime_candidate_mode_{xai_model_name}",
             )
 
             if candidate_mode == "Actual failures only":
@@ -714,25 +835,26 @@ with tab6:
             elif candidate_mode == "False positives only (false alarms)":
                 candidate_indices = np.where((y_test_arr == 0) & (y_pred_arr == 1))[0]
             else:
-                candidate_indices = np.arange(len(X_test))
+                candidate_indices = np.arange(len(X_test_xai))
 
             if len(candidate_indices) == 0:
                 st.warning("No instances are available for this random-selection category. Please choose another category.")
-                candidate_indices = np.arange(len(X_test))
+                candidate_indices = np.arange(len(X_test_xai))
 
             col_lime_a, col_lime_b, col_lime_c = st.columns([1.2, 1.2, 2.0])
             with col_lime_a:
-                random_clicked = st.button("🎲 Pick random & explain", help="Selects a random instance from the selected source and immediately runs LIME.")
+                random_clicked = st.button("🎲 Pick random & explain", help="Selects a random instance from the selected source and immediately runs LIME.", key=f"lime_random_{xai_model_name}")
             with col_lime_b:
-                explain_clicked = st.button("Explain selected index")
+                explain_clicked = st.button("Explain selected index", key=f"lime_explain_{xai_model_name}")
             with col_lime_c:
                 lime_idx_manual = st.number_input(
                     "Test-set instance index",
                     min_value=0,
-                    max_value=len(X_test) - 1,
+                    max_value=len(X_test_xai) - 1,
                     value=int(st.session_state["lime_selected_idx"]),
                     step=1,
                     help="Manual index of the test sample that should be explained by LIME.",
+                    key=f"lime_idx_{xai_model_name}",
                 )
 
             lime_idx_to_explain = None
@@ -749,22 +871,23 @@ with tab6:
             )
 
             if lime_idx_to_explain is not None:
-                with st.spinner("Running LIME..."):
-                    lime_exp = get_lime_explainer(X_train)
-                    fig_lime, exp = plot_lime_explanation(lime_exp, model, X_test.iloc[int(lime_idx_to_explain)])
+                with st.spinner(f"Running LIME for {xai_model_name}..."):
+                    lime_exp = get_lime_explainer(X_train_xai)
+                    fig_lime, exp = plot_lime_explanation(lime_exp, selected_model, X_test_xai.iloc[int(lime_idx_to_explain)])
                 actual = int(y_test.iloc[int(lime_idx_to_explain)])
-                predicted = int(y_pred[int(lime_idx_to_explain)])
-                probability = float(y_prob[int(lime_idx_to_explain)])
+                predicted = int(selected_y_pred[int(lime_idx_to_explain)])
+                probability = float(selected_y_prob[int(lime_idx_to_explain)])
 
                 st.markdown(
+                    f"**Model:** `{xai_model_name}`  \n"
                     f"**Explained test index:** `{int(lime_idx_to_explain)}`  \n"
                     f"**Actual label:** {'Failure ⚠️' if actual else 'No Failure ✅'} | "
                     f"**Predicted:** {'Failure ⚠️' if predicted else 'No Failure ✅'} | "
                     f"**Predicted failure probability:** `{probability:.3f}`"
                 )
 
-                st.markdown("**Raw feature values for this instance**")
-                st.dataframe(X_test.iloc[[int(lime_idx_to_explain)]], use_container_width=True)
+                st.markdown("**Input feature values used by the selected model**")
+                st.dataframe(X_test_xai.iloc[[int(lime_idx_to_explain)]], use_container_width=True)
 
                 st.pyplot(fig_lime)
                 lime_df = pd.DataFrame(exp.as_list(), columns=["Condition", "Weight"])
@@ -773,12 +896,13 @@ with tab6:
 
         else:
             st.markdown(
-                "**Partial Dependence Plots** show the average marginal effect of one feature on the predicted failure probability."
+                "**Partial Dependence Plots** show the average marginal effect of one feature on the predicted failure probability. "
+                "PDP can be generated for each supervised model."
             )
-            pdp_feat = st.selectbox("Select feature for PDP", FEATURES_CLEAN + ["Type_enc"])
-            if st.button("Generate PDP"):
-                with st.spinner("Computing PDP..."):
-                    fig_pdp = plot_pdp(model, X_train, pdp_feat)
+            pdp_feat = st.selectbox("Select feature for PDP", FEATURES_CLEAN + ["Type_enc"], key=f"pdp_feat_{xai_model_name}")
+            if st.button(f"Generate PDP for {xai_model_name}"):
+                with st.spinner(f"Computing PDP for {xai_model_name}..."):
+                    fig_pdp = plot_pdp(selected_model, X_train_xai, pdp_feat)
                 st.pyplot(fig_pdp)
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -800,7 +924,7 @@ with tab7:
         st.success("Done!")
 
     if "all_results" in st.session_state:
-        all_res, X_test_c, y_test_c = st.session_state["all_results"]
+        all_res, X_train_c, X_test_c, y_test_c = st.session_state["all_results"]
         summary = []
         for name, r in all_res.items():
             summary.append({
