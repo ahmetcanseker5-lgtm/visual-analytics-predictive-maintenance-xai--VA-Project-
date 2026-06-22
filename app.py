@@ -33,7 +33,7 @@ from xai_utils import (
     plot_pdp,
 )
 
-# ── Color palette ─────────────────────────────────────────────────────────────
+# ── Color palette ────────────────────────────────────────────────────────────
 # Color-blind friendly Okabe-Ito colors.
 # Use these consistently so "No Failure" and "Failure" are clearly distinguishable.
 NO_FAILURE_COLOR = "#0072B2"   # blue
