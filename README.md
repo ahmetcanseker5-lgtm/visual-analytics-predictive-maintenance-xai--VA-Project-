@@ -12,10 +12,11 @@ The project aims to answer:
 
 The dashboard follows the Visual Analytics idea of showing:
 
-1. raw input data,
-2. model prediction or anomaly score,
-3. explanation / XAI output,
-4. evaluation and comparison of models.
+1. an executive dashboard overview,
+2. raw input data,
+3. model prediction or anomaly score,
+4. explanation / XAI output,
+5. evaluation and comparison of models.
 
 ## Dataset
 
@@ -43,12 +44,13 @@ They are only used for dashboard display and interpretation.
 
 | Tab | Purpose |
 |---|---|
+| Dashboard | Executive overview with KPI cards, failure summary, model-performance highlights, project workflow, and quick interpretation before the detailed analysis tabs |
 | Data Explorer | Raw data, failure rate, failure-mode overview, filters |
 | Visual Analytics | Correlation heatmap, box plots, density plots, scatter plots, feature-relationship explorer, derived feature plots, scatter matrix, t-SNE |
 | Supervised ML | XGBoost, Random Forest, and Logistic Regression supervised failure prediction |
-| Anomaly Detection | Isolation Forest, LOF, and MLP Autoencoder trained on normal samples |
+| Anomaly Detection | Isolation Forest, LOF, and MLP Autoencoder trained on normal samples, including local anomaly explanations |
 | Semi-Supervised | Self-training versions of XGBoost, Random Forest, and Logistic Regression with limited labelled data |
-| XAI Explanations | SHAP, LIME, and Partial Dependence Plots for XGBoost |
+| XAI Explanations | SHAP, LIME, and Partial Dependence Plots for supervised models where supported |
 | Model Comparison | XGBoost vs Random Forest vs Logistic Regression |
 | Methodology & References | Literature-backed justification of dataset, methods, and XAI choices |
 
