@@ -138,3 +138,4 @@ The **Model Comparison** tab provides the same supervised comparison in a compac
 The XGBoost configuration is kept identical across sections so that its reported metrics are consistent when trained on the same dataset split.
 
 The **Semi-Supervised** tab applies `SelfTrainingClassifier` to the same three base models. It hides part of the training labels, marks them as unlabelled, and lets the model add confident pseudo-labels iteratively.
+
