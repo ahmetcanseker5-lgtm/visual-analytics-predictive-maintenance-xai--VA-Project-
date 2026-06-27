@@ -230,7 +230,7 @@ def plot_pdp(model, X_train, feature_name):
 
     fig, ax = plt.subplots(figsize=(7, 4))
     ax.plot(grid, pdp_values, marker="o" if len(grid) <= 10 else None, color=FAILURE_COLOR, linewidth=2.5)
-    ax.set_title(f"Partial Dependence — {feature_name}")
+    ax.set_title(f"Partial Dependence - {feature_name}")
     ax.set_xlabel(feature_name)
     ax.set_ylabel("Average predicted failure probability")
     ax.grid(alpha=0.3)

@@ -1,6 +1,6 @@
 # Interactive Explainable Predictive Maintenance Dashboard
 
-Visual Analytics course project — Hochschule Aalen, Summer Semester 2026.
+Visual Analytics course project - Hochschule Aalen, Summer Semester 2026.
 
 This project is an interactive end-to-end dashboard for **explainable predictive maintenance** using the **AI4I 2020 Predictive Maintenance Dataset**. It combines visual analytics, supervised machine learning, anomaly detection, and XAI methods.
 
@@ -60,17 +60,17 @@ They are only used for dashboard display and interpretation.
 
 These models learn from the `Machine failure` label:
 
-- **XGBoost** — strong tree-boosting model for tabular data
-- **Random Forest** — ensemble baseline
-- **Logistic Regression** — simpler interpretable baseline
+- **XGBoost** - strong tree-boosting model for tabular data
+- **Random Forest** - ensemble baseline
+- **Logistic Regression** - simpler interpretable baseline
 
 ### Anomaly Detection Models
 
 These models are trained mainly on normal machine samples and then evaluated against the `Machine failure` label:
 
-- **Isolation Forest** — isolates unusual samples through random tree partitions
-- **Local Outlier Factor (LOF)** — detects local density deviations
-- **MLP Autoencoder** — reconstructs normal samples; high reconstruction error indicates anomaly
+- **Isolation Forest** - isolates unusual samples through random tree partitions
+- **Local Outlier Factor (LOF)** - detects local density deviations
+- **MLP Autoencoder** - reconstructs normal samples; high reconstruction error indicates anomaly
 
 ## XAI Methods Used
 

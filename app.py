@@ -529,13 +529,13 @@ with dashboard_tab:
         use_container_width=True
     )
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 1 — Data Explorer
+# TAB 1 - Data Explorer
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab1:
     st.subheader("Raw Data Overview")
     st.markdown(
-        "Following Shneiderman's information-seeking mantra — **overview first, "
-        "zoom/filter, details on demand** — this tab gives the dataset overview before modelling."
+        "Following Shneiderman's information-seeking mantra - **overview first, "
+        "zoom/filter, details on demand** - this tab gives the dataset overview before modelling."
     )
 
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -570,7 +570,7 @@ with tab1:
     st.plotly_chart(fig_bar, use_container_width=True)
  
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — Visual Analytics
+# TAB 2 - Visual Analytics
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab2:
     st.subheader("Exploratory Visual Analytics")
@@ -611,7 +611,7 @@ with tab2:
         df_filtered[df_filtered["Machine failure"] == 1][feat_density].plot(
             kind="density", ax=axd, label=FAILURE_LABEL, color=FAILURE_COLOR, linewidth=2.5
         )
-    axd.set_title(f"Density plot — {feat_density}")
+    axd.set_title(f"Density plot - {feat_density}")
     axd.set_xlabel(feat_density)
     axd.legend()
     axd.grid(alpha=0.3)
@@ -682,7 +682,7 @@ with tab2:
         color_discrete_map=FAILURE_COLOR_MAP,
         category_orders={"Failure Status": [NO_FAILURE_LABEL, FAILURE_LABEL]},
         opacity=0.65,
-        title=f"{preset} — failure highlighted",
+        title=f"{preset} - failure highlighted",
         hover_data=["Type", "Machine failure", "Tool wear [min]", "Rotational speed [rpm]", "Torque [Nm]"],
     )
 
@@ -778,10 +778,10 @@ with tab2:
             st.plotly_chart(fig_tsne, use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 3 — Supervised ML
+# TAB 3 - Supervised ML
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab3:
-    st.subheader("Supervised Learning — XGBoost · Random Forest · Logistic Regression")
+    st.subheader("Supervised Learning - XGBoost · Random Forest · Logistic Regression")
     st.markdown(
         "This tab trains **three supervised failure-prediction models** with the same train/test split. "
         "They learn directly from the `Machine failure` label. These are not pure anomaly-detection models; "
@@ -844,7 +844,7 @@ with tab3:
 
         col_l, col_r = st.columns(2)
         with col_l:
-            st.markdown(f"**Confusion Matrix — {selected_supervised}**")
+            st.markdown(f"**Confusion Matrix - {selected_supervised}**")
             fig_cm, ax = plt.subplots(figsize=(4, 3))
             sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax, xticklabels=["No Fail", "Fail"], yticklabels=["No Fail", "Fail"])
             ax.set_xlabel("Predicted")
@@ -853,7 +853,7 @@ with tab3:
             st.pyplot(fig_cm)
 
         with col_r:
-            st.markdown(f"**ROC Curve — {selected_supervised}**")
+            st.markdown(f"**ROC Curve - {selected_supervised}**")
             fpr, tpr, _ = roc_curve(y_test_c, y_prob)
             fig_roc = go.Figure()
             fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, name=f"{selected_supervised} (AUC={auc:.3f})"))
@@ -870,10 +870,10 @@ with tab3:
         )
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 4 — Anomaly Detection
+# TAB 4 - Anomaly Detection
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab4:
-    st.subheader("Anomaly Detection — trained mainly on normal machine behavior")
+    st.subheader("Anomaly Detection - trained mainly on normal machine behavior")
     st.markdown(
         "This tab aligns the dashboard more directly with the project topic: **explainable anomaly detection**. "
         "The anomaly models are trained on normal samples only and then evaluated against the failure label."
@@ -1015,16 +1015,16 @@ with tab4:
                 y="Feature",
                 color="Direction",
                 orientation="h",
-                title=f"Local explanation — {selected_method}",
+                title=f"Local explanation - {selected_method}",
                 color_discrete_map={"Pushes toward anomaly": FAILURE_COLOR, "Pushes toward normal": NO_FAILURE_COLOR},
             )
             st.plotly_chart(fig_exp, use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — Semi-Supervised
+# TAB 5 - Semi-Supervised
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab5:
-    st.subheader("Semi-Supervised Learning — Self-Training Comparison")
+    st.subheader("Semi-Supervised Learning - Self-Training Comparison")
     st.markdown(
         "This tab simulates a practical maintenance situation where only a fraction of the training labels are available. "
         "We apply the same semi-supervised strategy to three base models: **XGBoost**, **Random Forest**, and **Logistic Regression**."
@@ -1089,7 +1089,7 @@ with tab5:
 
         col_l, col_r = st.columns(2)
         with col_l:
-            st.markdown(f"**Confusion Matrix — {selected_semi}**")
+            st.markdown(f"**Confusion Matrix - {selected_semi}**")
             fig_cm2, ax2 = plt.subplots(figsize=(4, 3))
             sns.heatmap(cm_s, annot=True, fmt="d", cmap="Greens", ax=ax2, xticklabels=["No Fail", "Fail"], yticklabels=["No Fail", "Fail"])
             ax2.set_xlabel("Predicted")
@@ -1097,22 +1097,22 @@ with tab5:
             plt.tight_layout()
             st.pyplot(fig_cm2)
         with col_r:
-            st.markdown(f"**ROC Curve — {selected_semi}**")
+            st.markdown(f"**ROC Curve - {selected_semi}**")
             fpr2, tpr2, _ = roc_curve(y_test_s, y_prob_s)
             fig_roc2 = go.Figure()
             fig_roc2.add_trace(go.Scatter(x=fpr2, y=tpr2, name=f"{selected_semi} (AUC={auc_s:.3f})"))
             fig_roc2.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines", line=dict(dash="dash"), name="Random"))
-            fig_roc2.update_layout(xaxis_title="False Positive Rate", yaxis_title="True Positive Rate", title="ROC Curve — Semi-Supervised", height=350)
+            fig_roc2.update_layout(xaxis_title="False Positive Rate", yaxis_title="True Positive Rate", title="ROC Curve - Semi-Supervised", height=350)
             st.plotly_chart(fig_roc2, use_container_width=True)
 
         st.markdown("**Full Classification Report**")
         st.dataframe(pd.DataFrame(report_s).T.round(4), use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 6 — XAI Explanations
+# TAB 6 - XAI Explanations
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab6:
-    st.subheader("Explainable AI — SHAP · LIME · PDP")
+    st.subheader("Explainable AI - SHAP · LIME · PDP")
     st.markdown(
         "This tab explains the **supervised failure-prediction models**. "
         "You can select XGBoost, Random Forest, or Logistic Regression and inspect how the model makes predictions."
@@ -1310,7 +1310,7 @@ with tab6:
                 st.pyplot(fig_pdp)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 7 — Model Comparison
+# TAB 7 - Model Comparison
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab7:
     st.subheader("Model Comparison")
@@ -1361,7 +1361,7 @@ with tab7:
                 st.pyplot(fig_c)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 8 — Methodology & References
+# TAB 8 - Methodology & References
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab8:
     st.subheader("Methodology and Literature Justification")
