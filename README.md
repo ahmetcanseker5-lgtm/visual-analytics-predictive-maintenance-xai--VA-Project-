@@ -54,7 +54,7 @@ They are only used for dashboard display and interpretation.
 | Model Comparison | XGBoost vs Random Forest vs Logistic Regression |
 | Methodology & References | Literature-backed justification of dataset, methods, and XAI choices |
 
-## Models Used
+## Models Used:
 
 ### Supervised Models
 
